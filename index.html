@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>CSR Decoder — локальный разбор CSR и сертификатов</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%2334d399' d='M12 2l8 3v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V5z'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0b0e14;
+  --card:#141926; --card2:#10141f;
+  --line:#232b3d; --line2:#2e3850;
+  --text:#e8ecf4; --muted:#95a1b9; --dim:#66718b;
+  --accent:#34d399; --accent-strong:#10b981;
+  --indigo:#818cf8; --amber:#fbbf24; --red:#f87171;
+  --mono:'Cascadia Code','JetBrains Mono',Consolas,ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:
+    radial-gradient(1100px 520px at 85% -10%, #16223a 0%, transparent 60%),
+    radial-gradient(900px 500px at -15% 110%, #0f2a20 0%, transparent 55%),
+    var(--bg);
+  color:var(--text);
+  font:15px/1.55 -apple-system,'Segoe UI',Roboto,Inter,sans-serif;
+  min-height:100vh;
+}
+.wrap{max-width:1060px;margin:0 auto;padding:28px 20px 60px}
+
+/* ---------- header ---------- */
+header{display:flex;align-items:center;gap:14px;margin-bottom:26px;flex-wrap:wrap}
+.logo{
+  width:44px;height:44px;border-radius:13px;flex:0 0 auto;
+  background:linear-gradient(145deg,#34d399,#059669);
+  display:grid;place-items:center;color:#04150d;
+  box-shadow:0 6px 18px rgba(16,185,129,.25);
+}
+.logo svg{width:24px;height:24px}
+h1{font-size:21px;margin:0;letter-spacing:.01em}
+.sub{margin:2px 0 0;color:var(--muted);font-size:13.5px}
+.offline-pill{
+  margin-left:auto;display:inline-flex;align-items:center;gap:7px;
+  font-size:12px;color:#86efac;border:1px solid #14532d80;background:#052e1b66;
+  padding:5px 12px;border-radius:999px;white-space:nowrap;
+}
+.offline-pill::before{content:'';width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 8px #34d399}
+
+/* ---------- cards ---------- */
+.card{
+  background:linear-gradient(180deg,#151a28,#111623);
+  border:1px solid var(--line);border-radius:16px;
+  box-shadow:0 10px 30px rgba(0,0,0,.35);
+  padding:20px;
+}
+.card-head{display:flex;align-items:baseline;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.card-head h2{font-size:15px;margin:0;font-weight:600}
+.hint{color:var(--dim);font-size:12.5px}
+kbd{
+  font-family:var(--mono);font-size:11px;color:var(--muted);
+  border:1px solid var(--line2);border-bottom-width:2px;border-radius:5px;
+  padding:1px 6px;background:#0d1119;
+}
+
+/* ---------- input ---------- */
+textarea#pem{
+  width:100%;min-height:190px;resize:vertical;
+  background:#0c1019;color:#dbe4f3;border:1px solid var(--line);border-radius:12px;
+  font:13px/1.6 var(--mono);padding:13px 15px;outline:none;
+  transition:border-color .15s, box-shadow .15s;
+}
+textarea#pem:focus{border-color:#34d39999;box-shadow:0 0 0 3px rgba(52,211,153,.13)}
+textarea#pem::placeholder{color:#4b5670}
+.input-card.dragover textarea#pem{border-color:var(--accent);border-style:dashed}
+.btn-row{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center}
+.spacer{flex:1}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+  border-radius:10px;padding:9px 17px;font-size:13.5px;font-weight:600;
+  border:1px solid transparent;transition:filter .12s, transform .05s, background .12s, color .12s, border-color .12s;
+  font-family:inherit;
+}
+.btn svg{width:15px;height:15px}
+.btn:active{transform:translateY(1px)}
+.btn.primary{
+  background:linear-gradient(180deg,#34d399,#0da271);color:#04150d;
+  box-shadow:0 6px 16px rgba(16,185,129,.22);
+}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;border-color:var(--line2);color:var(--muted)}
+.btn.ghost:hover{color:var(--text);border-color:#3d4a6b;background:#ffffff08}
+.btn.ghost.subtle{border-color:transparent;color:var(--dim)}
+.btn.ghost.subtle:hover{color:var(--red);background:#f8717112}
+.drop-line{
+  margin-top:12px;color:var(--dim);font-size:12.5px;cursor:pointer;
+  display:flex;align-items:center;gap:7px;width:fit-content;
+}
+.drop-line:hover{color:var(--muted)}
+.drop-line svg{width:14px;height:14px}
+#file-input{display:none}
+
+/* ---------- error ---------- */
+.error{
+  margin-top:16px;padding:13px 16px;border-radius:12px;
+  background:#2a1215;border:1px solid #7f1d1d66;color:#fca5a5;font-size:13.5px;
+}
+.error b{color:#fecaca}
+
+/* ---------- result ---------- */
+#result{margin-top:18px}
+.result-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.chip{
+  font-size:12px;font-weight:700;letter-spacing:.03em;
+  padding:5px 12px;border-radius:999px;border:1px solid;
+}
+.chip.csr{color:#a5b4fc;border-color:#818cf855;background:#818cf81a}
+.chip.cert{color:#6ee7b7;border-color:#34d39955;background:#34d3991a}
+.summary{color:var(--muted);font-size:13px;font-family:var(--mono)}
+.extra-blocks{color:var(--dim);font-size:12px}
+.sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px;align-items:start}
+section.card h3{
+  margin:0 0 6px;font-size:12px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim);
+}
+.row{
+  display:grid;grid-template-columns:minmax(105px,150px) 1fr auto;
+  gap:4px 12px;align-items:start;padding:8px 10px;border-radius:10px;
+}
+.row:hover{background:#ffffff07}
+.rk{color:var(--muted);font-size:12.5px;padding-top:2px;word-break:break-word}
+.rv{font-size:13.5px;word-break:break-all;min-width:0}
+.rv.mono{font-family:var(--mono);font-size:12.5px}
+.rv.small{font-size:12px;color:var(--muted)}
+.rv.good{color:#6ee7b7}.rv.warn{color:var(--amber)}.rv.bad{color:var(--red)}
+.copy-btn{
+  width:27px;height:27px;border-radius:8px;flex:0 0 auto;
+  border:1px solid var(--line2);background:transparent;color:var(--dim);
+  display:inline-grid;place-items:center;cursor:pointer;
+  transition:color .12s,border-color .12s,background .12s;
+}
+.copy-btn:hover{color:var(--text);border-color:#42507a;background:#ffffff0a}
+.copy-btn.ok{color:#34d399;border-color:#34d39988;background:#34d39914}
+.copy-btn svg{width:13px;height:13px}
+
+.pem-details{margin-top:16px}
+.pem-details summary{
+  cursor:pointer;color:var(--dim);font-size:13px;user-select:none;
+  padding:6px 2px;
+}
+.pem-details summary:hover{color:var(--muted)}
+.pem-box{position:relative;margin-top:10px}
+pre#pem-pre{
+  margin:0;background:#0c1019;border:1px solid var(--line);border-radius:12px;
+  padding:14px 16px;font:12px/1.6 var(--mono);color:#a8b6d4;
+  overflow:auto;max-height:240px;white-space:pre-wrap;word-break:break-all;
+}
+.pem-box .copy-btn{position:absolute;top:10px;right:10px;background:#141926ee}
+
+/* ---------- footer / toast ---------- */
+footer{margin-top:34px;text-align:center;color:var(--dim);font-size:12.5px}
+footer a{color:#6ee7b7;text-decoration:none;border-bottom:1px dashed #34d39955;padding-bottom:1px}
+footer a:hover{color:#34d399;border-bottom-color:#34d399}
+#toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:#1b2333;border:1px solid var(--line2);color:var(--text);
+  padding:10px 18px;border-radius:11px;font-size:13px;opacity:0;pointer-events:none;
+  transition:opacity .2s, transform .2s;box-shadow:0 12px 30px rgba(0,0,0,.45);z-index:10;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.hidden{display:none!important}
+@media (max-width:560px){
+  .row{grid-template-columns:1fr auto}
+  .rk{padding-top:0}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.6-3.3 7.8-8 9-4.7-1.2-8-4.4-8-9V6z"/><path d="M9 12l2 2 4-4.5"/></svg>
+  </div>
+  <div>
+    <h1>CSR / Certificate Decoder</h1>
+    <p class="sub">Локальный аналог ssl.org/csr-decoder — работает без интернета</p>
+  </div>
+  <span class="offline-pill">данные не покидают компьютер</span>
+</header>
+
+<section class="card input-card" id="input-card">
+  <div class="card-head">
+    <h2>Вставьте CSR или сертификат (PEM)</h2>
+    <span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> — разобрать</span>
+  </div>
+  <textarea id="pem" spellcheck="false" placeholder="-----BEGIN CERTIFICATE REQUEST-----&#10;MIICvDCCAaQCAQAwejELMAkGA1UEBhMCUlUx...&#10;-----END CERTIFICATE REQUEST-----"></textarea>
+  <div class="btn-row">
+    <button id="decode" class="btn primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      Разобрать
+    </button>
+    <button id="ex-csr" class="btn ghost">Пример CSR</button>
+    <button id="ex-cert" class="btn ghost">Пример сертификата</button>
+    <span class="spacer"></span>
+    <button id="clear" class="btn ghost subtle">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6"/></svg>
+      Очистить
+    </button>
+  </div>
+  <label class="drop-line" for="file-input">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0l-4 4m4-4l4 4"/><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+    или перетащите файл .csr / .pem / .crt — либо нажмите, чтобы выбрать
+  </label>
+  <input type="file" id="file-input" accept=".csr,.pem,.crt,.txt,text/plain">
+</section>
+
+<div id="error" class="error hidden"></div>
+
+<section id="result" class="hidden">
+  <div class="result-bar">
+    <span id="type-chip" class="chip"></span>
+    <span id="summary" class="summary"></span>
+    <span id="extra-blocks" class="extra-blocks"></span>
+    <span class="spacer"></span>
+    <button id="copy-json" class="btn ghost">Копировать JSON</button>
+    <button id="copy-pem" class="btn ghost">Копировать PEM</button>
+  </div>
+  <div id="sections" class="sections"></div>
+  <details class="pem-details card" style="padding:12px 16px">
+    <summary>Нормализованный PEM</summary>
+    <div class="pem-box">
+      <pre id="pem-pre"></pre>
+    </div>
+  </details>
+</section>
+
+<footer>Разбор выполняется локально в браузере — ни один байт не уходит в сеть.<br>
+Поддерживаются CSR (PKCS#10) и сертификаты X.509: RSA, EC (P-256/384/521, secp256k1), Ed25519.<br>
+Разработано <a href="https://darktech.ru" target="_blank" rel="noopener">DarkTech</a></footer>
+
+</div>
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+/* ================= примеры ================= */
+const EXAMPLE_CSR = `-----BEGIN CERTIFICATE REQUEST-----
+MIIDRTCCAi0CAQAwgZcxCzAJBgNVBAYTAlJVMQ8wDQYDVQQIDAZNb3Njb3cxDzAN
+BgNVBAcMBk1vc2NvdzEUMBIGA1UECgwLRXhhbXBsZSBMTEMxFjAUBgNVBAsMDUlU
+IERlcGFydG1lbnQxFTATBgNVBAMMDGV4YW1wbGUudGVzdDEhMB8GCSqGSIb3DQEJ
+ARYSYWRtaW5AZXhhbXBsZS50ZXN0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB
+CgKCAQEAqqgIvCXjhWLEEec8RHa+rMClaIkc+JQGxMN73qpPcLvy3n8DnIon00jo
+K1Lqdhztb7OHkcpnqH2UnKSUGEdUGR0c/tT6SzOFMWEs7o+gTUSmXcBxhYh4GqtZ
+b6PvSwvF7bJhw0ka/BIq6xPxBgMCLYpLc/2CeZyURACE3fRco2TkbHZxK8d0cPcM
+wK2dnxACszLqSePANVHmjiBvlOTz61G+I08f92OPTqcDcWnweHapKWCPHhrqOY63
+41jTQzU1+ZBR9EY/lGPVHPR0JLlMNHznXccax4p2ijgRs8fK0FfvhHW9Sf94/hny
+voU4qwJYp79Elp4Uq2nNdnJ3WJ2CNQIDAQABoGgwZgYJKoZIhvcNAQkOMVkwVzBV
+BgNVHREETjBMggxleGFtcGxlLnRlc3SCEHd3dy5leGFtcGxlLnRlc3SCEGFwaS5l
+eGFtcGxlLnRlc3SHBMCoAQqBEmFkbWluQGV4YW1wbGUudGVzdDANBgkqhkiG9w0B
+AQsFAAOCAQEAkba559KICh6kcidX8unJJzKI62khIG7rC5ku+gu8ZplinFfjMeGw
+VHBmH+K+3uCULBrMUQKv1bQEp1vSAlIi1SkdFeHaI4lWecrztUX6y2LLmtXSpOQo
+BKqnq7m0VrVIVEMK4rjE1Bv6F/lxmLtzBIVVxZ48sjd+nChT4uZzGcoeO0Qu0cLY
+hDSM3bt+NOkIS0T9jlnDeJyhM2c1WEJw7CHsTvgwaaHQRk67JfTi3+d1TxZIza9b
+a7X1SYRv4Gbz0YobNrHq7mFuVFj3pc92Powsipr8kVoFF8nMHzCc7EKznmKZIKcz
+Wd2HP+UMZNptTsAzIWooZLySztwfR/kNzw==
+-----END CERTIFICATE REQUEST-----`;
+
+const EXAMPLE_CERT = `-----BEGIN CERTIFICATE-----
+MIICIjCCAcigAwIBAgIUFbbxWW5fpmmwrZ8h2LF2AunXmycwCgYIKoZIzj0EAwIw
+OjELMAkGA1UEBhMCUlUxFDASBgNVBAoMC0V4YW1wbGUgTExDMRUwEwYDVQQDDAxl
+eGFtcGxlLnRlc3QwHhcNMjYxMDA5MDA0NDMzWhcNMjgxMDA4MDA0NDMzWjA6MQsw
+CQYDVQQGEwJSVTEUMBIGA1UECgwLRXhhbXBsZSBMTEMxFTATBgNVBAMMDGV4YW1w
+bGUudGVzdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABHGPnNDS2mHi2VEQ07nl
+jOHbtrop7RLbou/rVoV8rXH/ACDSi8T/qGFf3GrdbunsLKMQa8l9YYewfT4/h5Ew
+Pu6jgaswgagwHQYDVR0OBBYEFJg6TTn6o8I7LsE/nCrSdo3tfRR5MB8GA1UdIwQY
+MBaAFJg6TTn6o8I7LsE/nCrSdo3tfRR5MCkGA1UdEQQiMCCCDGV4YW1wbGUudGVz
+dIIQd3d3LmV4YW1wbGUudGVzdDAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIF
+oDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwCgYIKoZIzj0EAwIDSAAw
+RQIgbwQcdR7qxUIxbL+ZgL2/2IA1C/Y/HL6bOZjTaX8IXBICIQC/4MCmQd6yDKpq
+Qrh5qPf8hh3SlUF7ly7p1hIg5LLe0w==
+-----END CERTIFICATE-----`;
+
+/* ================= утилиты ================= */
+const $ = s => document.querySelector(s);
+const COPY_SVG  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
+const tdUtf8 = new TextDecoder('utf-8');
+function latin1(b){ let s=''; for(let i=0;i<b.length;i++) s+=String.fromCharCode(b[i]); return s; }
+function bytesToHex(b, sep){
+  let s='';
+  for(let i=0;i<b.length;i++) s += b[i].toString(16).padStart(2,'0').toUpperCase() + sep;
+  return sep ? s.slice(0,-sep.length) : s;
+}
+const hexGrouped = b => bytesToHex(b, ':');
+
+function toast(msg){
+  const t=$('#toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),1600);
+}
+async function copyText(text){
+  try{ await navigator.clipboard.writeText(text); return true; }
+  catch(e){
+    try{
+      const ta=document.createElement('textarea');
+      ta.value=text; ta.style.cssText='position:fixed;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      const ok=document.execCommand('copy'); ta.remove(); return ok;
+    }catch(e2){ return false; }
+  }
+}
+function makeCopyBtn(getText, title){
+  const b=document.createElement('button');
+  b.className='copy-btn'; b.type='button'; b.title=title||'Скопировать';
+  b.innerHTML=COPY_SVG;
+  b.addEventListener('click', async ()=>{
+    const text = typeof getText==='function' ? getText() : getText;
+    const ok=await copyText(text);
+    if(ok){
+      b.classList.add('ok'); b.innerHTML=CHECK_SVG;
+      clearTimeout(b._t); b._t=setTimeout(()=>{b.classList.remove('ok'); b.innerHTML=COPY_SVG;},1200);
+    }else toast('Не удалось скопировать');
+  });
+  return b;
+}
+
+/* ================= PEM ================= */
+function extractPemBlocks(text){
+  const re=/-----BEGIN ([A-Z0-9 ]+)-----([\s\S]+?)-----END[ ]+\1-----/g;
+  const out=[]; let m;
+  while((m=re.exec(text))) out.push({label:m[1], b64:m[2].replace(/\s+/g,'')});
+  return out;
+}
+function b64ToBytes(s){
+  s=s.replace(/-/g,'+').replace(/_/g,'/');
+  const bin=atob(s);
+  const u=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i);
+  return u;
+}
+function normalizePem(label, b64){
+  const lines=b64.match(/.{1,64}/g)||[];
+  return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----`;
+}
+
+/* ================= DER ================= */
+class DerError extends Error{}
+function readTLV(buf, off){
+  if(off>=buf.length) throw new DerError('обрезанные данные');
+  const b0=buf[off];
+  if((b0&0x1f)===0x1f) throw new DerError('многобайтовые теги не поддерживаются');
+  const node={cls:b0>>6, constructed:!!(b0&0x20), tag:b0&0x1f, start:off, buf};
+  let p=off+1, l=buf[p++];
+  if(l===undefined) throw new DerError('обрезанная длина');
+  if(l&0x80){
+    const n=l&0x7f;
+    if(n===0||n>4) throw new DerError('некорректная длина');
+    l=0;
+    for(let i=0;i<n;i++){ l=(l<<8)|buf[p++]; }
+  }
+  if(p+l>buf.length) throw new DerError('длина выходит за границы буфера');
+  node.content=p; node.len=l; node.end=p+l;
+  return node;
+}
+function children(node){
+  const out=[]; let p=node.content;
+  while(p<node.end){
+    const c=readTLV(node.buf,p);
+    out.push(c); p=c.end;
+  }
+  return out;
+}
+const val = n => n.buf.subarray(n.content, n.end);
+const isSeq = n => n.cls===0 && n.constructed && n.tag===16;
+const isCtx = (n,tag) => n.cls===2 && n.tag===tag;
+
+function decodeOID(node){
+  const b=val(node);
+  if(!b.length) throw new DerError('пустой OID');
+  const parts = b[0]<40 ? [0,b[0]] : b[0]<80 ? [(b[0]/40)|0, b[0]%40] : [2, b[0]-80];
+  let cur=0;
+  for(let i=1;i<b.length;i++){
+    cur=(cur<<7)|(b[i]&0x7f);
+    if(!(b[i]&0x80)){ parts.push(cur); cur=0; }
+  }
+  return parts.join('.');
+}
+function decodeInt(node){
+  const b=val(node);
+  if(!b.length) return 0n;
+  let v=0n;
+  for(const x of b) v=(v<<8n)|BigInt(x);
+  if(b[0]&0x80) v -= 1n<<BigInt(b.length*8);
+  return v;
+}
+function decodeBool(node){ return val(node)[0]!==0; }
+function decodeTime(node){
+  const s=latin1(val(node));
+  let m;
+  if(node.tag===23) m=/^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?Z$/.exec(s);
+  else if(node.tag===24) m=/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:\.\d+)?Z$/.exec(s);
+  if(!m) return null;
+  const y = node.tag===23 ? (+m[1]<50?2000:+m[1]<100?1900:0)+ +m[1] : +m[1];
+  return new Date(Date.UTC(y, +m[2]-1, +m[3], +m[4], +m[5], +(m[6]||0)));
+}
+function fmtDate(d){
+  return d.toLocaleString('ru-RU',{timeZone:'UTC',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})+' UTC';
+}
+
+/* ================= словари OID ================= */
+const NAME_OIDS={
+  '2.5.4.3':'CN','2.5.4.6':'C','2.5.4.7':'L','2.5.4.8':'ST','2.5.4.10':'O','2.5.4.11':'OU',
+  '2.5.4.5':'serialNumber','2.5.4.4':'SN','2.5.4.42':'GN','2.5.4.9':'street','2.5.4.12':'title',
+  '2.5.4.15':'businessCategory','2.5.4.17':'postalCode','2.5.4.46':'dnQualifier','2.5.4.65':'pseudonym',
+  '1.2.840.113549.1.9.1':'emailAddress','0.9.2342.19200300.100.1.25':'DC','0.9.2342.19200300.100.1.1':'userID'
+};
+const SIG_OIDS={
+  '1.2.840.113549.1.1.5':'sha1WithRSAEncryption',
+  '1.2.840.113549.1.1.11':'sha256WithRSAEncryption',
+  '1.2.840.113549.1.1.12':'sha384WithRSAEncryption',
+  '1.2.840.113549.1.1.13':'sha512WithRSAEncryption',
+  '1.2.840.113549.1.1.10':'RSASSA-PSS',
+  '1.2.840.10045.4.3.2':'ecdsa-with-SHA256',
+  '1.2.840.10045.4.3.3':'ecdsa-with-SHA384',
+  '1.2.840.10045.4.3.4':'ecdsa-with-SHA512',
+  '1.2.840.10045.4.1':'ecdsa-with-SHA1',
+  '1.3.101.112':'Ed25519 (PureEdDSA)',
+  '1.3.101.113':'Ed448'
+};
+const KEY_OIDS={
+  '1.2.840.113549.1.1.1':'rsaEncryption',
+  '1.2.840.10045.2.1':'ecPublicKey',
+  '1.3.101.112':'Ed25519',
+  '1.3.101.113':'Ed448',
+  '1.2.840.113549.1.1.10':'rsaPSS'
+};
+const CURVES={
+  '1.2.840.10045.3.1.7':{n:'P-256',alt:'secp256r1 / prime256v1',bits:256},
+  '1.3.132.0.34':{n:'P-384',alt:'secp384r1',bits:384},
+  '1.3.132.0.35':{n:'P-521',alt:'secp521r1',bits:521},
+  '1.3.132.0.10':{n:'secp256k1',alt:'',bits:256},
+  '1.3.132.0.33':{n:'P-224',alt:'secp224r1',bits:224},
+  '1.3.36.3.3.2.8.1.1.7':{n:'brainpoolP256r1',alt:'',bits:256},
+  '1.3.36.3.3.2.8.1.1.11':{n:'brainpoolP384r1',alt:'',bits:384},
+  '1.3.36.3.3.2.8.1.1.13':{n:'brainpoolP512r1',alt:'',bits:512}
+};
+const EXT_NAMES={
+  '2.5.29.17':'Subject Alternative Names','2.5.29.15':'Key Usage','2.5.29.37':'Extended Key Usage',
+  '2.5.29.19':'Basic Constraints','2.5.29.14':'Subject Key Identifier','2.5.29.35':'Authority Key Identifier',
+  '2.5.29.31':'CRL Distribution Points','1.3.6.1.5.5.7.1.1':'Authority Information Access',
+  '2.5.29.32':'Certificate Policies','1.3.6.1.4.1.11129.2.4.2':'Embedded SCTs','2.5.29.9':'Subject Directory Attributes'
+};
+const EKU_OIDS={
+  '1.3.6.1.5.5.7.3.1':'serverAuth','1.3.6.1.5.5.7.3.2':'clientAuth','1.3.6.1.5.5.7.3.3':'codeSigning',
+  '1.3.6.1.5.5.7.3.4':'emailProtection','1.3.6.1.5.5.7.3.8':'timeStamping','1.3.6.1.5.5.7.3.9':'OCSPSigning',
+  '2.5.29.37.0':'anyExtendedKeyUsage'
+};
+const KU_FLAGS=['digitalSignature','nonRepudiation','keyEncipherment','dataEncipherment','keyAgreement','keyCertSign','cRLSign','encipherOnly','decipherOnly'];
+const OID_EXT_REQ='1.2.840.113549.1.9.14';
+
+/* ================= разбор структур ================= */
+function parseName(node){ // RDNSequence
+  const out=[];
+  for(const rdn of children(node))
+    for(const atv of children(rdn)){
+      const k=children(atv);
+      if(k.length<2) continue;
+      const oid=decodeOID(k[0]);
+      out.push({oid, label:NAME_OIDS[oid]||oid, value:tdUtf8.decode(val(k[1]))});
+    }
+  return out;
+}
+function nameOneLine(rdns){
+  return rdns.map(r=>`${r.label}=${r.value}`).join(', ');
+}
+function parseSPKI(node){
+  const k=children(node);
+  const alg=children(k[0]);
+  const algOid=decodeOID(alg[0]);
+  const res={algOid, spkiBytes:node.buf.subarray(node.start,node.end)};
+  if(algOid==='1.2.840.113549.1.1.1'){ // RSA
+    const pub=k[1].buf.subarray(k[1].content+1,k[1].end); // BIT STRING без бита unused
+    const seq=readTLV(pub,0);
+    const kk=children(seq);
+    const n=decodeInt(kk[0]), e=decodeInt(kk[1]);
+    res.type='RSA'; res.bits=n.toString(2).length;
+    res.exponent='0x'+e.toString(16)+' ('+e.toString()+')';
+  }else if(algOid==='1.2.840.10045.2.1'){ // EC
+    const curveOid=alg[1]&&alg[1].cls===0&&!alg[1].constructed?decodeOID(alg[1]):null;
+    const c=CURVES[curveOid];
+    res.type='EC'; res.curveOid=curveOid;
+    res.curve=c?`${c.n}${c.alt?' ('+c.alt+')':''}`:(curveOid||'неизвестная кривая');
+    res.bits=c?c.bits:null;
+  }else if(algOid==='1.3.101.112'){
+    res.type='Ed25519'; res.bits=256;
+  }else if(algOid==='1.3.101.113'){
+    res.type='Ed448'; res.bits=456;
+  }else{
+    res.type=KEY_OIDS[algOid]||('unknown ('+algOid+')'); res.bits=null;
+  }
+  return res;
+}
+function parseSANbytes(bytes){
+  const seq=readTLV(bytes,0);
+  const out=[];
+  for(const g of children(seq)){
+    const v=latin1(val(g));
+    switch(g.tag){
+      case 1: out.push({t:'email', v}); break;
+      case 2: out.push({t:'DNS', v}); break;
+      case 6: out.push({t:'URI', v}); break;
+      case 7:{
+        const b=val(g);
+        out.push({t:'IP', v: b.length===4 ? Array.from(b).join('.') : b.length===16 ? hexGrouped(b).replace(/:(\d+)/g,':$1') : hexGrouped(b)});
+        break;
+      }
+      case 8: out.push({t:'RID', v}); break;
+      case 5: out.push({t:'otherName', v:hexGrouped(val(g))}); break;
+      default: out.push({t:'tag '+g.tag, v:hexGrouped(val(g))});
+    }
+  }
+  return out;
+}
+function parseExtension(extNode){
+  const k=children(extNode);
+  const oid=decodeOID(k[0]);
+  let i=1, critical=false;
+  if(k[i]&&k[i].tag===1){ critical=decodeBool(k[i]); i++; }
+  const bytes=val(k[i]); // DER внутри extnValue
+  const ext={oid, name:EXT_NAMES[oid]||oid, critical, rawHex:bytesToHex(bytes)};
+  try{
+    if(oid==='2.5.29.17') ext.san=parseSANbytes(bytes);
+    else if(oid==='2.5.29.15'){
+      const bits=val(readTLV(bytes,0));
+      const unused=bits[0]; const body=bits.subarray(1);
+      const set=[];
+      for(let b=0;b<KU_FLAGS.length;b++){
+        const byte=b>>3, bit=7-(b&7);
+        if(body[byte]&(1<<bit)) set.push(KU_FLAGS[b]);
+      }
+      ext.keyUsage=set;
+    }
+    else if(oid==='2.5.29.37') ext.eku=children(readTLV(bytes,0)).map(decodeOID).map(o=>EKU_OIDS[o]||o);
+    else if(oid==='2.5.29.19'){
+      const c=children(readTLV(bytes,0));
+      ext.bc={ca:false,pathLen:null};
+      if(c[0]&&c[0].tag===1) ext.bc.ca=decodeBool(c[0]);
+      const j=ext.bc.ca?1:0;
+      if(c[j]&&c[j].tag===2) ext.bc.pathLen=decodeInt(c[j]).toString();
+    }
+    else if(oid==='2.5.29.14') ext.ski=hexGrouped(val(readTLV(bytes,0)));
+    else if(oid==='2.5.29.35'){
+      for(const c of children(readTLV(bytes,0))){
+        if(isCtx(c,0)&&!c.constructed) ext.akiKeyId=hexGrouped(val(c));
+        if(isCtx(c,2)&&!c.constructed) ext.akiSerial='0x'+decodeInt(c).toString(16).toUpperCase();
+      }
+    }
+    else if(oid==='2.5.29.31'){
+      const uris=[];
+      for(const dp of children(readTLV(bytes,0)))
+        for(const f of children(dp))
+          if(isCtx(f,0))
+            for(const g of children(f)) if(g.tag===6) uris.push(latin1(val(g)));
+      if(uris.length) ext.crlURIs=uris;
+    }
+    else if(oid==='1.3.6.1.5.5.7.1.1'){
+      const acc=[];
+      for(const ad of children(readTLV(bytes,0))){
+        const kk=children(ad);
+        const method=decodeOID(kk[0]);
+        if(kk[1]&&kk[1].tag===6) acc.push({method:method==='1.3.6.1.5.5.7.48.1'?'OCSP':method==='1.3.6.1.5.5.7.48.2'?'CA Issuers':method, uri:latin1(val(kk[1]))});
+      }
+      if(acc.length) ext.aia=acc;
+    }
+  }catch(e){ /* при ошибке показываем сырой hex */ }
+  return ext;
+}
+function parseAlgorithm(node){
+  const k=children(node);
+  const oid=decodeOID(k[0]);
+  return {oid, name:SIG_OIDS[oid]||oid};
+}
+function parseCSR(der){
+  const root=readTLV(der,0);
+  if(!isSeq(root)) throw new DerError('корневой элемент не SEQUENCE');
+  const cs=children(root);
+  if(cs.length<3) throw new DerError('нет трёх элементов PKCS#10');
+  const cri=children(cs[0]);
+  if(cri.length<3) throw new DerError('CertificationRequestInfo неполный');
+  const vInt=decodeInt(cri[0]);
+  const version=(vInt+1n)+' (0x'+vInt.toString(16)+')';
+  const subject=parseName(cri[1]);
+  const spki=parseSPKI(cri[2]);
+  const exts=[];
+  const attrsNode=cri.find(n=>isCtx(n,0));
+  if(attrsNode){
+    for(const attr of children(attrsNode)){
+      const ak=children(attr);
+      if(decodeOID(ak[0])===OID_EXT_REQ){
+        const seq=children(ak[1])[0];
+        for(const e of children(seq)) exts.push(parseExtension(e));
+      }
+    }
+  }
+  return {
+    kind:'csr', version, subject, key:spki, extensions:exts,
+    sigAlg:parseAlgorithm(cs[1]),
+    der
+  };
+}
+function parseCert(der){
+  const root=readTLV(der,0);
+  if(!isSeq(root)) throw new DerError('корневой элемент не SEQUENCE');
+  const cs=children(root);
+  const t=children(cs[0]);
+  let i=0, version='1 (0x0)';
+  if(isCtx(t[0],0)&&t[0].constructed){ version=(decodeInt(children(t[0])[0])+1n)+' (0x'+decodeInt(children(t[0])[0]).toString(16)+')'; i=1; }
+  const serial=decodeInt(t[i]); i++;
+  const sigAlgOuter=parseAlgorithm(t[i]); i++;
+  const issuer=parseName(t[i]); i++;
+  const vt=children(t[i]); i++;
+  const notBefore=decodeTime(vt[0]), notAfter=decodeTime(vt[1]);
+  const subject=parseName(t[i]); i++;
+  const spki=parseSPKI(t[i]); i++;
+  const exts=[];
+  for(;i<t.length;i++)
+    if(isCtx(t[i],3)&&t[i].constructed)
+      for(const e of children(children(t[i])[0])) exts.push(parseExtension(e));
+  return {
+    kind:'cert', version, serial:'0x'+serial.toString(16).toUpperCase().padStart(2,'0'),
+    subject, issuer, notBefore, notAfter, key:spki, extensions:exts,
+    sigAlg:sigAlgOuter, der
+  };
+}
+
+/* ================= отпечатки ================= */
+async function sha(alg, bytes){
+  if(!(window.crypto&&crypto.subtle)) return null;
+  const h=new Uint8Array(await crypto.subtle.digest(alg, bytes));
+  return hexGrouped(h);
+}
+
+/* ================= отрисовка ================= */
+let LAST=null; // {json, pem}
+
+function row(k, v, opt){
+  opt=opt||{};
+  const r=document.createElement('div'); r.className='row';
+  const rk=document.createElement('div'); rk.className='rk'; rk.textContent=k;
+  const rv=document.createElement('div'); rv.className='rv'+(opt.mono?' mono':'')+(opt.small?' small':'')+(opt.cls?' '+opt.cls:'');
+  rv.textContent=v;
+  r.append(rk, rv);
+  if(v!=='' && v!=null){
+    r.append(makeCopyBtn(opt.copy!==undefined?opt.copy:String(v), 'Скопировать: '+k));
+  }
+  return r;
+}
+function section(title, rows){
+  const s=document.createElement('section');
+  s.className='card';
+  const h=document.createElement('h3'); h.textContent=title; s.append(h);
+  rows.forEach(r=>r&&s.append(r));
+  return s;
+}
+function subjectSection(title, rdns){
+  const rows=[row('Одной строкой', nameOneLine(rdns), {mono:true})];
+  for(const r of rdns) rows.push(row(r.label, r.value, {mono:true, copy:r.value}));
+  return section(title, rows);
+}
+function keySection(key, keyFp){
+  const rows=[row('Алгоритм', key.type)];
+  if(key.bits) rows.push(row('Длина', key.bits+' бит', {copy:String(key.bits)}));
+  if(key.exponent) rows.push(row('Экспонента', key.exponent, {mono:true}));
+  if(key.curve) rows.push(row('Кривая', key.curve, {mono:true}));
+  if(keyFp) rows.push(row('Отпечаток ключа SHA-256', keyFp, {mono:true, small:true}));
+  return section('Открытый ключ', rows);
+}
+function extRows(exts){
+  const rows=[];
+  for(const e of exts){
+    const suffix=e.critical?' · critical':'';
+    if(e.san){
+      for(const s of e.san) rows.push(row('SAN · '+s.t+suffix, s.v, {mono:true}));
+    }else if(e.keyUsage){
+      rows.push(row((EXT_NAMES[e.oid]||e.oid)+suffix, e.keyUsage.join(', ')));
+    }else if(e.eku){
+      rows.push(row((EXT_NAMES[e.oid]||e.oid)+suffix, e.eku.join(', ')));
+    }else if(e.bc){
+      rows.push(row((EXT_NAMES[e.oid]||e.oid)+suffix, (e.bc.ca?'CA: TRUE':'CA: FALSE')+(e.bc.pathLen?', pathLen: '+e.bc.pathLen:''), {cls:e.bc.ca?'warn':''}));
+    }else if(e.ski){
+      rows.push(row((EXT_NAMES[e.oid]||e.oid)+suffix, e.ski, {mono:true, small:true}));
+    }else if(e.akiKeyId){
+      rows.push(row((EXT_NAMES[e.oid]||e.oid)+suffix, e.akiKeyId+(e.akiSerial?', serial '+e.akiSerial:''), {mono:true, small:true}));
+    }else if(e.crlURIs){
+      for(const u of e.crlURIs) rows.push(row((EXT_NAMES[e.oid]||e.oid)+suffix, u, {mono:true}));
+    }else if(e.aia){
+      for(const a of e.aia) rows.push(row('AIA · '+a.method+suffix, a.uri, {mono:true}));
+    }else{
+      rows.push(row((EXT_NAMES[e.oid]||e.oid)+suffix, e.rawHex.length>96?e.rawHex.slice(0,96)+'…':e.rawHex, {mono:true, small:true, copy:e.rawHex}));
+    }
+  }
+  if(!rows.length) rows.push(row('Расширения', '—'));
+  return rows;
+}
+
+function validityRows(res){
+  const now=new Date();
+  let status, cls;
+  if(res.notBefore&&now<res.notBefore){ status='Ещё не действует (начало: '+fmtDate(res.notBefore)+')'; cls='warn'; }
+  else if(res.notAfter&&now>res.notAfter){ status='Истёк'; cls='bad'; }
+  else if(res.notAfter){
+    const days=Math.floor((res.notAfter-now)/864e5);
+    if(days<=30){ status='Истекает через '+days+' дн.'; cls='warn'; }
+    else{ status='Действует (осталось '+days+' дн.)'; cls='good'; }
+  }
+  return [
+    row('Not Before', res.notBefore?fmtDate(res.notBefore):'?', {copy:res.notBefore?res.notBefore.toISOString():'?'}),
+    row('Not After', res.notAfter?fmtDate(res.notAfter):'?', {copy:res.notAfter?res.notAfter.toISOString():'?'}),
+    status?row('Статус', status, {cls}):null
+  ];
+}
+
+function buildJson(res, fps){
+  const j={type:res.kind==='csr'?'CSR (PKCS#10)':'Certificate (X.509)', version:res.version};
+  j.subject=Object.fromEntries(res.subject.map(r=>[r.label,r.value]));
+  if(res.kind==='cert'){
+    j.serialNumber=res.serial;
+    j.issuer=Object.fromEntries(res.issuer.map(r=>[r.label,r.value]));
+    j.validity={notBefore:res.notBefore?res.notBefore.toISOString():null, notAfter:res.notAfter?res.notAfter.toISOString():null};
+  }
+  j.publicKey={algorithm:res.key.type, ...(res.key.bits?{bits:res.key.bits}:{}), ...(res.key.curve?{curve:res.key.curve}:{}), ...(res.key.exponent?{exponent:res.key.exponent}:{})};
+  j.signatureAlgorithm=res.sigAlg.name;
+  if(res.extensions.length) j.extensions=res.extensions.map(e=>({oid:e.oid, name:EXT_NAMES[e.oid]||e.oid, critical:e.critical, ...e.san?{san:e.san}:{}, ...e.keyUsage?{keyUsage:e.keyUsage}:{}, ...e.eku?{eku:e.eku}:{}, ...e.bc?{basicConstraints:e.bc}:{}, ...e.ski?{subjectKeyIdentifier:e.ski}:{}, ...e.akiKeyId?{authorityKeyIdentifier:e.akiKeyId}:{}, ...e.crlURIs?{crlDistributionPoints:e.crlURIs}:{}, ...e.aia?{authorityInformationAccess:e.aia}:{}, ...(!e.san&&!e.keyUsage&&!e.eku&&!e.bc&&!e.ski&&!e.akiKeyId&&!e.crlURIs&&!e.aia)?{valueHex:e.rawHex}:{}}));
+  if(fps) j.fingerprints=fps;
+  return j;
+}
+
+async function render(res, blocksCount){
+  const fps={};
+  fps['SHA-256']=await sha('SHA-256', res.der);
+  if(res.kind==='cert') fps['SHA-1']=await sha('SHA-1', res.der);
+  const keyFp=await sha('SHA-256', res.key.spkiBytes);
+
+  $('#type-chip').textContent = res.kind==='csr'?'CSR · PKCS#10':'Сертификат X.509';
+  $('#type-chip').className='chip '+(res.kind==='csr'?'csr':'cert');
+  const cn=(res.subject.find(r=>r.label==='CN')||{}).value||'—';
+  $('#summary').textContent=`${cn} · ${res.key.type}${res.key.bits?' '+res.key.bits:''} · ${res.sigAlg.name}`;
+  $('#extra-blocks').textContent=blocksCount>1?`во вводе ${blocksCount} PEM-блока — декодирован первый`:'';
+
+  const secs=[];
+  const genRows=[row('Тип', res.kind==='csr'?'CSR (запрос на подпись сертификата)':'Сертификат X.509')];
+  genRows.push(row('Версия', res.version));
+  if(res.kind==='cert') genRows.push(row('Серийный номер', res.serial, {mono:true}));
+  genRows.push(row('Алгоритм подписи', res.sigAlg.name, {mono:true}));
+  for(const [k,v] of Object.entries(fps)) if(v) genRows.push(row('Отпечаток '+k, v, {mono:true, small:true}));
+  secs.push(section('Общая информация', genRows));
+
+  secs.push(subjectSection('Владелец (Subject)', res.subject));
+  if(res.kind==='cert'){
+    secs.push(subjectSection('Издатель (Issuer)', res.issuer));
+    secs.push(section('Срок действия', validityRows(res)));
+  }
+  secs.push(keySection(res.key, keyFp));
+  secs.push(section(res.kind==='csr'?'Запрошенные расширения':'Расширения', extRows(res.extensions)));
+
+  const host=$('#sections'); host.innerHTML=''; host.append(...secs);
+  $('#pem-pre').textContent=normalizePem(res.kind==='csr'?'CERTIFICATE REQUEST':'CERTIFICATE', b64safe(res.der));
+  $('#error').classList.add('hidden');
+  $('#result').classList.remove('hidden');
+
+  LAST={json:buildJson(res, fps), pem:$('#pem-pre').textContent};
+  makePemCopyBtn();
+}
+function b64safe(bytes){
+  let s='';
+  for(let i=0;i<bytes.length;i++) s+=String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+function makePemCopyBtn(){
+  const box=document.querySelector('.pem-box');
+  if(box.querySelector('.copy-btn')) return;
+  box.append(makeCopyBtn(()=>LAST.pem,'Скопировать PEM'));
+}
+
+/* ================= главный поток ================= */
+function fail(msg){
+  $('#result').classList.add('hidden');
+  const e=$('#error');
+  e.innerHTML='';
+  const b=document.createElement('b'); b.textContent='Ошибка: ';
+  e.append(b, document.createTextNode(msg));
+  e.classList.remove('hidden');
+}
+function decode(){
+  const text=$('#pem').value;
+  if(!text.trim()){ fail('пустой ввод — вставьте PEM-текст CSR или сертификата.'); return; }
+  let blocks;
+  try{ blocks=extractPemBlocks(text); }
+  catch(e){ blocks=[]; }
+  if(!blocks.length){
+    fail('не найден PEM-блок. Ожидается текст вида -----BEGIN CERTIFICATE REQUEST----- … -----END CERTIFICATE REQUEST----- или -----BEGIN CERTIFICATE-----.');
+    return;
+  }
+  const first=blocks[0];
+  const isCsr=/CERTIFICATE REQUEST/.test(first.label);
+  const isCert=first.label==='CERTIFICATE';
+  if(!isCsr&&!isCert){
+    fail('неизвестный тип PEM-блока: «'+first.label+'». Поддерживаются CSR (CERTIFICATE REQUEST / NEW CERTIFICATE REQUEST) и сертификаты (CERTIFICATE).');
+    return;
+  }
+  let der;
+  try{ der=b64ToBytes(first.b64); }
+  catch(e){ fail('некорректный Base64 внутри PEM-блока.'); return; }
+  try{
+    const res=isCsr?parseCSR(der):parseCert(der);
+    render(res, blocks.length);
+  }catch(e){
+    fail(e instanceof DerError?('не удалось разобрать DER-структуру — '+e.message+'. Файл может быть повреждён.'):(e.message||'неизвестная ошибка разбора.'));
+  }
+}
+
+/* ================= события ================= */
+$('#decode').addEventListener('click', decode);
+$('#pem').addEventListener('keydown', e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter') decode(); });
+$('#pem').addEventListener('input', ()=>{ $('#error').classList.add('hidden'); });
+$('#ex-csr').addEventListener('click', ()=>{ $('#pem').value=EXAMPLE_CSR; decode(); });
+$('#ex-cert').addEventListener('click', ()=>{ $('#pem').value=EXAMPLE_CERT; decode(); });
+$('#clear').addEventListener('click', ()=>{
+  $('#pem').value='';
+  $('#result').classList.add('hidden');
+  $('#error').classList.add('hidden');
+  $('#pem').focus();
+});
+$('#copy-json').addEventListener('click', async ()=>{
+  if(!LAST) return;
+  (await copyText(JSON.stringify(LAST.json,null,2))) ? toast('JSON скопирован') : toast('Не удалось скопировать');
+});
+$('#copy-pem').addEventListener('click', async ()=>{
+  if(!LAST) return;
+  (await copyText(LAST.pem)) ? toast('PEM скопирован') : toast('Не удалось скопировать');
+});
+
+const inputCard=$('#input-card');
+['dragenter','dragover'].forEach(ev=>inputCard.addEventListener(ev, e=>{ e.preventDefault(); inputCard.classList.add('dragover'); }));
+['dragleave','drop'].forEach(ev=>inputCard.addEventListener(ev, e=>{ e.preventDefault(); inputCard.classList.remove('dragover'); }));
+inputCard.addEventListener('drop', e=>{
+  const f=e.dataTransfer.files&&e.dataTransfer.files[0];
+  if(!f) return;
+  f.text().then(t=>{ $('#pem').value=t; decode(); });
+});
+$('#file-input').addEventListener('change', e=>{
+  const f=e.target.files[0];
+  if(!f) return;
+  f.text().then(t=>{ $('#pem').value=t; decode(); });
+  e.target.value='';
+});
+</script>
+</body>
+</html>
